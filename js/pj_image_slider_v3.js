@@ -86,6 +86,15 @@ app.registerExtension({
             };
 
             nodeType.prototype.onDrawForeground = function (ctx) {
+                // Constantly filter out any standard preview widgets added by ComfyUI (V1 or V2 frontend)
+                if (this.widgets) {
+                    const originalLength = this.widgets.length;
+                    this.widgets = this.widgets.filter(w => w.name === "save_image" || w.name === "filename_prefix");
+                    if (this.widgets.length !== originalLength) {
+                        this.setDirtyCanvas(true);
+                    }
+                }
+
                 if (this.flags.collapsed || !this.pj_imgs[0]) return;
 
                 const margin = 10;
