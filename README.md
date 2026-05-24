@@ -36,3 +36,11 @@ This node is similar to the standard generator but adds a `length` input for vid
     - `LATENT`: The generated empty latent (16 channels, Hunyuan/Wan compatible).
     - `width`, `height`, `length`, `batch_size`: Integer outputs.
 
+### PJ Image Preview/Save
+A dual-function node that can either preview images or save them to disk based on a switch.
+
+- **Inputs**:
+    - `images`: Image input.
+    - `save_mode`: Toggle switch. **OFF** (default) = Preview Mode. **ON** = Save Mode.
+    - `filename_prefix`: Prefix for saved files.
+
