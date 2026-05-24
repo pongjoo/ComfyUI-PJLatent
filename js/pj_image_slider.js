@@ -29,9 +29,9 @@ app.registerExtension({
                 
                 onExecuted?.apply(this, [cleanMessage]);
 
-                // Also clean up any 'image' type widgets that might have been added.
+                // Also clean up any standard preview widgets added by ComfyUI (V1 or V2 frontend)
                 if (this.widgets) {
-                    this.widgets = this.widgets.filter(w => w.type !== "image");
+                    this.widgets = this.widgets.filter(w => w.name === "save_image" || w.name === "filename_prefix");
                 }
 
                 const load = (meta, idx) => {

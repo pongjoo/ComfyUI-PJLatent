@@ -76,12 +76,11 @@ class PJ_Image_Handler:
         if save_image:
             saved_images = handle_batch(images, "", True) # A图作为主图保存，不带额外 Tag
 
-        # 返回 UI 数据供 JS 使用
-        ui_data = { "a_images": preview_a, "b_images": preview_b }
-        if save_image and saved_images:
-            ui_data["images"] = saved_images
+        # 始终返回 images 键，以便 ComfyUI 的历史记录和资产管理器在两种模式下都能捕捉到图片
+        ui_images = saved_images if (save_image and saved_images) else preview_a
 
-        return { "ui": ui_data }
+        # 返回 UI 数据供 JS 使用
+        return { "ui": { "a_images": preview_a, "b_images": preview_b, "images": ui_images } }
 
 # 移除了 PJ_Image_Comparer 类，功能已合并
 
