@@ -20,19 +20,10 @@ app.registerExtension({
 
             const onExecuted = nodeType.prototype.onExecuted;
             nodeType.prototype.onExecuted = function (message) {
-                // Clone the message and delete 'images' to prevent the base onExecuted
-                // from adding the standard ComfyUI image preview widget.
-                const cleanMessage = { ...message };
-                if (cleanMessage.images) {
-                    delete cleanMessage.images;
-                }
-                
-                onExecuted?.apply(this, [cleanMessage]);
-
-                // Also clean up any standard preview widgets added by ComfyUI (V1 or V2 frontend)
-                if (this.widgets) {
-                    this.widgets = this.widgets.filter(w => w.name === "save_image" || w.name === "filename_prefix");
-                }
+                // Pass the original unmodified message to the base onExecuted handler.
+                // This ensures ComfyUI's history and assets managers receive the 'images' key
+                // and display the previews correctly in both preview and save modes.
+                onExecuted?.apply(this, arguments);
 
                 const load = (meta, idx) => {
                     if (meta && meta.length > 0) {
@@ -87,6 +78,8 @@ app.registerExtension({
 
             nodeType.prototype.onDrawForeground = function (ctx) {
                 // Constantly filter out any standard preview widgets added by ComfyUI (V1 or V2 frontend)
+                // We do this during drawing so that the widget is immediately unmounted from the DOM
+                // and cannot block mouse events on the canvas, even if ComfyUI recreates it.
                 if (this.widgets) {
                     const originalLength = this.widgets.length;
                     this.widgets = this.widgets.filter(w => w.name === "save_image" || w.name === "filename_prefix");
