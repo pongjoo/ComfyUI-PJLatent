@@ -20,7 +20,19 @@ app.registerExtension({
 
             const onExecuted = nodeType.prototype.onExecuted;
             nodeType.prototype.onExecuted = function (message) {
-                onExecuted?.apply(this, arguments);
+                // Clone the message and delete 'images' to prevent the base onExecuted
+                // from adding the standard ComfyUI image preview widget.
+                const cleanMessage = { ...message };
+                if (cleanMessage.images) {
+                    delete cleanMessage.images;
+                }
+                
+                onExecuted?.apply(this, [cleanMessage]);
+
+                // Also clean up any 'image' type widgets that might have been added.
+                if (this.widgets) {
+                    this.widgets = this.widgets.filter(w => w.type !== "image");
+                }
 
                 const load = (meta, idx) => {
                     if (meta && meta.length > 0) {
