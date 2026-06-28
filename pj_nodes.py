@@ -115,37 +115,58 @@ class PJ_Video_Latent_Generator:
 TRANSLATOR_CACHE = {}
 
 def get_translator_models():
-    search_paths = []
-    if hasattr(folder_paths, "models_dir"):
-        search_paths.extend([
-            os.path.join(folder_paths.models_dir, "prompt_generator"),
-            os.path.join(folder_paths.models_dir, "LLM"),
-            os.path.join(folder_paths.models_dir, "transformers"),
-            os.path.join(folder_paths.models_dir, "opus-mt-zh-en"),
-        ])
+    search_dirs = []
+    if hasattr(folder_paths, "models_dir") and folder_paths.models_dir:
+        search_dirs.append(folder_paths.models_dir)
+        
+    if hasattr(folder_paths, "folder_names_and_paths"):
+        for k, v in folder_paths.folder_names_and_paths.items():
+            if isinstance(v, tuple) and len(v) > 0 and isinstance(v[0], list):
+                for p in v[0]:
+                    if p and os.path.exists(p):
+                        search_dirs.append(p)
+                        
+    aki_models = r"D:\ComfyUI-aki-v1.3\models"
+    if os.path.exists(aki_models):
+        search_dirs.append(aki_models)
+        
     local_models = os.path.join(os.path.dirname(__file__), "models")
-    search_paths.append(local_models)
+    search_paths_all = search_dirs + [local_models]
+
+    unique_search_dirs = []
+    for d in search_paths_all:
+        norm = os.path.normpath(d)
+        if norm not in unique_search_dirs and os.path.exists(norm):
+            unique_search_dirs.append(norm)
 
     found = {}
-    for p in search_paths:
-        if os.path.exists(p):
-            if os.path.exists(os.path.join(p, "config.json")):
-                found[os.path.basename(p)] = p
-            try:
-                for sub in os.listdir(p):
-                    sub_path = os.path.join(p, sub)
-                    if os.path.isdir(sub_path) and os.path.exists(os.path.join(sub_path, "config.json")):
-                        try:
-                            rel_name = os.path.relpath(sub_path, folder_paths.models_dir)
-                        except Exception:
-                            rel_name = sub
-                        found[rel_name] = sub_path
-            except Exception:
-                pass
-    
+    categories = ["prompt_generator", "LLM", "transformers", "opus-mt-zh-en", "NLP", "translation"]
+
+    for b_dir in unique_search_dirs:
+        prefix = "Aki" if "aki" in b_dir.lower() else "models"
+        if os.path.exists(os.path.join(b_dir, "config.json")):
+            name = os.path.basename(b_dir)
+            if "opus" in name.lower() or "trans" in name.lower() or "zh" in name.lower():
+                found[f"[{prefix}] {name}"] = b_dir
+            
+        try:
+            for sub in os.listdir(b_dir):
+                sub_path = os.path.join(b_dir, sub)
+                if os.path.isdir(sub_path):
+                    if os.path.exists(os.path.join(sub_path, "config.json")):
+                        if "opus" in sub.lower() or "trans" in sub.lower() or "zh" in sub.lower():
+                            found[f"[{prefix}] {sub}"] = sub_path
+                    if sub.lower() in [c.lower() for c in categories]:
+                        for sub2 in os.listdir(sub_path):
+                            sub2_path = os.path.join(sub_path, sub2)
+                            if os.path.isdir(sub2_path) and os.path.exists(os.path.join(sub2_path, "config.json")):
+                                found[f"[{prefix}] {sub}/{sub2}"] = sub2_path
+        except Exception:
+            pass
+
     choices = list(found.keys())
     if not choices:
-        choices = ["opus-mt-zh-en (请放至 models/prompt_generator/opus-mt-zh-en)"]
+        choices = ["opus-mt-zh-en (可放至任意 models/prompt_generator/opus-mt-zh-en)"]
     return choices, found
 
 class PJ_Text_Translator:
@@ -176,24 +197,35 @@ class PJ_Text_Translator:
         model_path = found_map.get(model, None)
 
         if not model_path or not os.path.exists(model_path):
-            possible_paths = [
-                os.path.join(folder_paths.models_dir, "prompt_generator", "opus-mt-zh-en"),
-                os.path.join(folder_paths.models_dir, "LLM", "opus-mt-zh-en"),
-                os.path.join(folder_paths.models_dir, "transformers", "opus-mt-zh-en"),
-                os.path.join(folder_paths.models_dir, "opus-mt-zh-en"),
-                os.path.join(os.path.dirname(__file__), "models", "opus-mt-zh-en"),
-            ]
+            # Dynamic search across all base model directories
+            search_dirs = [folder_paths.models_dir] if hasattr(folder_paths, "models_dir") else []
+            aki_models = r"D:\ComfyUI-aki-v1.3\models"
+            if os.path.exists(aki_models):
+                search_dirs.append(aki_models)
+            search_dirs.append(os.path.join(os.path.dirname(__file__), "models"))
+
+            possible_paths = []
+            for root_dir in search_dirs:
+                possible_paths.extend([
+                    os.path.join(root_dir, "prompt_generator", "opus-mt-zh-en"),
+                    os.path.join(root_dir, "LLM", "opus-mt-zh-en"),
+                    os.path.join(root_dir, "transformers", "opus-mt-zh-en"),
+                    os.path.join(root_dir, "opus-mt-zh-en"),
+                ])
             for p in possible_paths:
                 if os.path.exists(os.path.join(p, "config.json")):
                     model_path = p
                     break
 
         if not model_path or not os.path.exists(os.path.join(model_path, "config.json")):
-            target_suggest = os.path.join(folder_paths.models_dir, "prompt_generator", "opus-mt-zh-en")
+            suggest1 = os.path.join(folder_paths.models_dir, "prompt_generator", "opus-mt-zh-en")
+            suggest2 = r"D:\ComfyUI-aki-v1.3\models\prompt_generator\opus-mt-zh-en"
             raise RuntimeError(
                 f"\n[PJ Translator] 错误：未在本地找到离线模型配置文件 'config.json'！\n"
                 f"请先从 HuggingFace 下载 Helsinki-NLP/opus-mt-zh-en 的完整离线模型文件。\n"
-                f"推荐存放路径为：{target_suggest}\n"
+                f"推荐存放路径为以下任意一个：\n"
+                f"1. 便携版路径: {suggest1}\n"
+                f"2. Aki整合包路径: {suggest2}\n"
             )
 
         if device == "auto":
