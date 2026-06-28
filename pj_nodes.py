@@ -113,6 +113,56 @@ class PJ_Video_Latent_Generator:
         return ({"samples": torch.zeros([batch_size, 16, (length-1)//4+1, height//8, width//8])}, width, height, length, batch_size)
 
 TRANSLATOR_CACHE = {}
+REQUIRED_FILES = [
+    "config.json",
+    "pytorch_model.bin",
+    "source.spm",
+    "target.spm",
+    "tokenizer_config.json",
+    "vocab.json"
+]
+
+def download_opus_model_if_missing(target_dir):
+    os.makedirs(target_dir, exist_ok=True)
+    missing = [f for f in REQUIRED_FILES if not os.path.exists(os.path.join(target_dir, f))]
+    if not missing:
+        return target_dir
+
+    print(f"\n[PJ Translator] 正在自动下载缺失的离线模型文件 ({len(missing)}个文件) 至: {target_dir} ...")
+    try:
+        from huggingface_hub import hf_hub_download
+        for f in missing:
+            print(f"[PJ Translator] 正在从 HuggingFace 下载必须文件: {f} ...")
+            hf_hub_download(
+                repo_id="Helsinki-NLP/opus-mt-zh-en",
+                filename=f,
+                local_dir=target_dir
+            )
+        print("[PJ Translator] 所有必须的离线模型文件已成功下载！\n")
+    except Exception as e:
+        print(f"[PJ Translator] huggingface_hub 自动下载产生异常 ({e})，尝试备用网络通道...")
+        import urllib.request
+        base_urls = [
+            "https://hf-mirror.com/Helsinki-NLP/opus-mt-zh-en/resolve/main/",
+            "https://huggingface.co/Helsinki-NLP/opus-mt-zh-en/resolve/main/"
+        ]
+        for f in missing:
+            local_file_path = os.path.join(target_dir, f)
+            downloaded = False
+            for base_url in base_urls:
+                url = base_url + f
+                try:
+                    print(f"[PJ Translator] 正在下载 {f} 来自 {base_url} ...")
+                    req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+                    with urllib.request.urlopen(req, timeout=60) as response, open(local_file_path, 'wb') as out_file:
+                        out_file.write(response.read())
+                    downloaded = True
+                    break
+                except Exception as err:
+                    print(f"[PJ Translator] 从 {base_url} 下载 {f} 失败: {err}")
+            if not downloaded:
+                raise RuntimeError(f"[PJ Translator] 自动下载失败！请检查网络或手动下载必须文件至: {target_dir}")
+    return target_dir
 
 def get_translator_models():
     search_dirs = []
@@ -164,9 +214,7 @@ def get_translator_models():
         except Exception:
             pass
 
-    choices = list(found.keys())
-    if not choices:
-        choices = ["opus-mt-zh-en (可放至任意 models/prompt_generator/opus-mt-zh-en)"]
+    choices = ["Auto / opus-mt-zh-en (自动检测/自动下载)"] + list(found.keys())
     return choices, found
 
 class PJ_Text_Translator:
@@ -197,7 +245,6 @@ class PJ_Text_Translator:
         model_path = found_map.get(model, None)
 
         if not model_path or not os.path.exists(model_path):
-            # Dynamic search across all base model directories
             search_dirs = [folder_paths.models_dir] if hasattr(folder_paths, "models_dir") else []
             aki_models = r"D:\ComfyUI-aki-v1.3\models"
             if os.path.exists(aki_models):
@@ -218,15 +265,8 @@ class PJ_Text_Translator:
                     break
 
         if not model_path or not os.path.exists(os.path.join(model_path, "config.json")):
-            suggest1 = os.path.join(folder_paths.models_dir, "prompt_generator", "opus-mt-zh-en")
-            suggest2 = r"D:\ComfyUI-aki-v1.3\models\prompt_generator\opus-mt-zh-en"
-            raise RuntimeError(
-                f"\n[PJ Translator] 错误：未在本地找到离线模型配置文件 'config.json'！\n"
-                f"请先从 HuggingFace 下载 Helsinki-NLP/opus-mt-zh-en 的完整离线模型文件。\n"
-                f"推荐存放路径为以下任意一个：\n"
-                f"1. 便携版路径: {suggest1}\n"
-                f"2. Aki整合包路径: {suggest2}\n"
-            )
+            target_dir = os.path.join(folder_paths.models_dir, "prompt_generator", "opus-mt-zh-en")
+            model_path = download_opus_model_if_missing(target_dir)
 
         if device == "auto":
             target_device = "cuda" if torch.cuda.is_available() else "cpu"
