@@ -112,15 +112,144 @@ class PJ_Video_Latent_Generator:
         width, height, length = (width+8)//16*16, (height+8)//16*16, int(duration_seconds*16)+1
         return ({"samples": torch.zeros([batch_size, 16, (length-1)//4+1, height//8, width//8])}, width, height, length, batch_size)
 
+TRANSLATOR_CACHE = {}
+
+def get_translator_models():
+    search_paths = []
+    if hasattr(folder_paths, "models_dir"):
+        search_paths.extend([
+            os.path.join(folder_paths.models_dir, "prompt_generator"),
+            os.path.join(folder_paths.models_dir, "LLM"),
+            os.path.join(folder_paths.models_dir, "transformers"),
+            os.path.join(folder_paths.models_dir, "opus-mt-zh-en"),
+        ])
+    local_models = os.path.join(os.path.dirname(__file__), "models")
+    search_paths.append(local_models)
+
+    found = {}
+    for p in search_paths:
+        if os.path.exists(p):
+            if os.path.exists(os.path.join(p, "config.json")):
+                found[os.path.basename(p)] = p
+            try:
+                for sub in os.listdir(p):
+                    sub_path = os.path.join(p, sub)
+                    if os.path.isdir(sub_path) and os.path.exists(os.path.join(sub_path, "config.json")):
+                        try:
+                            rel_name = os.path.relpath(sub_path, folder_paths.models_dir)
+                        except Exception:
+                            rel_name = sub
+                        found[rel_name] = sub_path
+            except Exception:
+                pass
+    
+    choices = list(found.keys())
+    if not choices:
+        choices = ["opus-mt-zh-en (请放至 models/prompt_generator/opus-mt-zh-en)"]
+    return choices, found
+
+class PJ_Text_Translator:
+    def __init__(self): pass
+
+    @classmethod
+    def INPUT_TYPES(s):
+        choices, _ = get_translator_models()
+        return {
+            "required": {
+                "text": ("STRING", {"multiline": True, "default": "", "dynamicPrompts": False}),
+                "model": (choices, ),
+                "device": (["auto", "cuda", "cpu"], {"default": "auto"}),
+                "keep_in_memory": ("BOOLEAN", {"default": True}),
+            }
+        }
+
+    RETURN_TYPES = ("STRING",)
+    RETURN_NAMES = ("text",)
+    FUNCTION = "translate"
+    CATEGORY = "PJ_Nodes/Text"
+
+    def translate(self, text, model, device="auto", keep_in_memory=True):
+        if not text or not text.strip():
+            return ("",)
+
+        choices, found_map = get_translator_models()
+        model_path = found_map.get(model, None)
+
+        if not model_path or not os.path.exists(model_path):
+            possible_paths = [
+                os.path.join(folder_paths.models_dir, "prompt_generator", "opus-mt-zh-en"),
+                os.path.join(folder_paths.models_dir, "LLM", "opus-mt-zh-en"),
+                os.path.join(folder_paths.models_dir, "transformers", "opus-mt-zh-en"),
+                os.path.join(folder_paths.models_dir, "opus-mt-zh-en"),
+                os.path.join(os.path.dirname(__file__), "models", "opus-mt-zh-en"),
+            ]
+            for p in possible_paths:
+                if os.path.exists(os.path.join(p, "config.json")):
+                    model_path = p
+                    break
+
+        if not model_path or not os.path.exists(os.path.join(model_path, "config.json")):
+            target_suggest = os.path.join(folder_paths.models_dir, "prompt_generator", "opus-mt-zh-en")
+            raise RuntimeError(
+                f"\n[PJ Translator] 错误：未在本地找到离线模型配置文件 'config.json'！\n"
+                f"请先从 HuggingFace 下载 Helsinki-NLP/opus-mt-zh-en 的完整离线模型文件。\n"
+                f"推荐存放路径为：{target_suggest}\n"
+            )
+
+        if device == "auto":
+            target_device = "cuda" if torch.cuda.is_available() else "cpu"
+        else:
+            target_device = device
+
+        global TRANSLATOR_CACHE
+        cache_key = (model_path, target_device)
+
+        if cache_key in TRANSLATOR_CACHE:
+            tokenizer, net = TRANSLATOR_CACHE[cache_key]
+            if not keep_in_memory:
+                del TRANSLATOR_CACHE[cache_key]
+        else:
+            from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
+            tokenizer = AutoTokenizer.from_pretrained(model_path, local_files_only=True)
+            net = AutoModelForSeq2SeqLM.from_pretrained(model_path, local_files_only=True)
+            net.to(target_device)
+            net.eval()
+            if keep_in_memory:
+                TRANSLATOR_CACHE[cache_key] = (tokenizer, net)
+
+        lines = text.split('\n')
+        translated_lines = []
+        for line in lines:
+            if not line.strip():
+                translated_lines.append("")
+                continue
+            inputs = tokenizer(line, return_tensors="pt", padding=True, truncation=True).to(target_device)
+            with torch.no_grad():
+                outputs = net.generate(**inputs)
+            out_str = tokenizer.decode(outputs[0], skip_special_tokens=True)
+            translated_lines.append(out_str)
+
+        final_result = '\n'.join(translated_lines)
+
+        if not keep_in_memory and cache_key not in TRANSLATOR_CACHE:
+            del net
+            del tokenizer
+            if target_device == "cuda":
+                torch.cuda.empty_cache()
+
+        return (final_result,)
+
 NODE_CLASS_MAPPINGS = { 
     "PJ_Latent_Generator": PJ_Latent_Generator, 
     "PJ_Video_Latent_Generator": PJ_Video_Latent_Generator, 
-    "PJ_Image_Handler": PJ_Image_Handler
+    "PJ_Image_Handler": PJ_Image_Handler,
+    "PJ_Text_Translator": PJ_Text_Translator
 }
 NODE_DISPLAY_NAME_MAPPINGS = { 
     "PJ_Latent_Generator": "PJ Latent Generator", 
     "PJ_Video_Latent_Generator": "PJ Video Latent Generator", 
-    "PJ_Image_Handler": "PJ Image Preview/Save"
+    "PJ_Image_Handler": "PJ Image Preview/Save",
+    "PJ_Text_Translator": "PJ Text Translator (ZH -> EN)"
 }
 
 WEB_DIRECTORY = "./js"
