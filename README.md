@@ -8,10 +8,11 @@ A powerful and convenient custom node suite for ComfyUI, providing aspect-ratio-
 
 ## 🌟 Features / 功能特性
 
-### 1. PJ Text Translator (ZH -> EN) | 离线中文转英文翻译节点
-- **纯离线/自动下载 (Offline / Auto Download)**: 基于 `Helsinki-NLP/opus-mt-zh-en` 模型。自动检测本地模型文件；若本地未找到，会自动从 HuggingFace/镜像站定向下载仅需的 6 个核心模型文件。
-- **全路模型智能扫描 (Smart Multi-Path Scan)**: 自动扫描便携版及 Aki 整合包等多套 `models` 路径（如 `prompt_generator` / `LLM` / `transformers`）。
-- **多行提示词分行处理 (Multi-line Support)**: 完美支持带换行符的长文本与多行 Prompt 逐行精准翻译。
+### 1. PJ Text Translator (Bi-Directional) | 智能双向文本翻译节点
+- **智能双向互译 (Bi-Directional Translation)**: 支持 `Auto` 智能识别模式、`ZH -> EN` (中译英) 与 `EN -> ZH` (英译中)。输入中文自动转英文 Prompt，输入英文自动翻译为中文！
+- **纯离线/自动下载 (Offline / Auto Download)**: 基于 `opus-mt-zh-en` 和 `opus-mt-en-zh` 离线小模型。若本地未找到模型文件，会自动从 HuggingFace/镜像站定向补齐所需核心文件。
+- **提示词标点规范化 (Clean Punctuation)**: 自动将中文全角标点（`，` `。` `！`）清洗替换为标准的英文半角逗号加空格（`, `），符合 SD/Flux 提示词格式。
+- **前缀与后缀拼接 (Prefix & Suffix)**: 支持在节点内部一键添加画质前缀词或自定义后缀。
 - **显存驻留优化 (Memory Cache)**: 支持模型驻留，后续翻译实现毫秒级极速响应。
 
 ### 2. PJ Image Preview/Save | 图像对比预览与保存节点
@@ -44,16 +45,17 @@ A powerful and convenient custom node suite for ComfyUI, providing aspect-ratio-
 
 在 ComfyUI 工作流画布中右键 -> `PJ_Nodes` 找到对应节点：
 
-### 📄 PJ Text Translator (ZH -> EN)
+### 📄 PJ Text Translator (Bi-Directional)
 - **输入参数**:
-  - `text`: 输入需要翻译的中文文本或提示词（支持多行）。
-  - `model`: 默认 `Auto / opus-mt-zh-en (自动检测/自动下载)`。也可选择扫描到的具体本地模型目录。
+  - `text`: 输入需要翻译的文本（支持多行）。
+  - `mode`: 默认 `Auto (智能双向检测)`，也可手动选择 `ZH -> EN (中译英)` 或 `EN -> ZH (英译中)`。
+  - `clean_punctuation`: 自动清理和规范化标点（默认开启）。
+  - `prefix` / `suffix` (可选): 可在输出结果前后自动拼接文本。
   - `device`: `auto`（优先 CUDA 显卡加速）、`cuda` 或 `cpu`。
-  - `keep_in_memory`: 是否驻留显存/内存（默认开启）。
 - **离线模型手动存放路径（可选）**:
-  若手动下载，请将解压后的 6 个核心文件（`config.json`, `pytorch_model.bin`, `source.spm`, `target.spm`, `tokenizer_config.json`, `vocab.json`）放入以下任意路径：
-  - 便携版: `ComfyUI/models/prompt_generator/opus-mt-zh-en/`
-  - Aki整合包: `D:/ComfyUI-aki-v1.3/models/prompt_generator/opus-mt-zh-en/`
+  若手动下载，请将解压后的核心模型文件放入以下路径：
+  - 中译英: `ComfyUI/models/prompt_generator/opus-mt-zh-en/`
+  - 英译中: `ComfyUI/models/prompt_generator/opus-mt-en-zh/`
 
 ### 🖼️ PJ Image Preview/Save
 - **输入参数**:

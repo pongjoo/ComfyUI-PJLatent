@@ -1,6 +1,7 @@
 import torch
 import os
 import json
+import re
 import numpy as np
 from PIL import Image
 from PIL.PngImagePlugin import PngInfo
@@ -122,19 +123,19 @@ REQUIRED_FILES = [
     "vocab.json"
 ]
 
-def download_opus_model_if_missing(target_dir):
+def download_opus_model_if_missing(target_dir, repo_id="Helsinki-NLP/opus-mt-zh-en"):
     os.makedirs(target_dir, exist_ok=True)
     missing = [f for f in REQUIRED_FILES if not os.path.exists(os.path.join(target_dir, f))]
     if not missing:
         return target_dir
 
-    print(f"\n[PJ Translator] 正在自动下载缺失的离线模型文件 ({len(missing)}个文件) 至: {target_dir} ...")
+    print(f"\n[PJ Translator] 正在自动下载缺失的离线模型文件 ({len(missing)}个文件) [{repo_id}] 至: {target_dir} ...")
     try:
         from huggingface_hub import hf_hub_download
         for f in missing:
             print(f"[PJ Translator] 正在从 HuggingFace 下载必须文件: {f} ...")
             hf_hub_download(
-                repo_id="Helsinki-NLP/opus-mt-zh-en",
+                repo_id=repo_id,
                 filename=f,
                 local_dir=target_dir
             )
@@ -143,8 +144,8 @@ def download_opus_model_if_missing(target_dir):
         print(f"[PJ Translator] huggingface_hub 自动下载产生异常 ({e})，尝试备用网络通道...")
         import urllib.request
         base_urls = [
-            "https://hf-mirror.com/Helsinki-NLP/opus-mt-zh-en/resolve/main/",
-            "https://huggingface.co/Helsinki-NLP/opus-mt-zh-en/resolve/main/"
+            f"https://hf-mirror.com/{repo_id}/resolve/main/",
+            f"https://huggingface.co/{repo_id}/resolve/main/"
         ]
         for f in missing:
             local_file_path = os.path.join(target_dir, f)
@@ -226,25 +227,66 @@ class PJ_Text_Translator:
         return {
             "required": {
                 "text": ("STRING", {"multiline": True, "default": "", "dynamicPrompts": False}),
+                "mode": (["Auto (智能双向检测)", "ZH -> EN (中译英)", "EN -> ZH (英译中)"], {"default": "Auto (智能双向检测)"}),
                 "model": (choices, ),
                 "device": (["auto", "cuda", "cpu"], {"default": "auto"}),
+                "clean_punctuation": ("BOOLEAN", {"default": True, "label_on": "Clean Punctuation", "label_off": "Keep Original"}),
                 "keep_in_memory": ("BOOLEAN", {"default": True}),
+            },
+            "optional": {
+                "prefix": ("STRING", {"multiline": False, "default": "", "dynamicPrompts": False}),
+                "suffix": ("STRING", {"multiline": False, "default": "", "dynamicPrompts": False}),
             }
         }
 
-    RETURN_TYPES = ("STRING",)
-    RETURN_NAMES = ("text",)
+    RETURN_TYPES = ("STRING", "STRING")
+    RETURN_NAMES = ("text", "original_text")
     FUNCTION = "translate"
     CATEGORY = "PJ_Nodes/Text"
 
-    def translate(self, text, model, device="auto", keep_in_memory=True):
+    def clean_text_punctuation(self, text):
+        if not text: return ""
+        replacements = {
+            '，': ', ', '。': '. ', '！': '! ', '？': '? ',
+            '；': '; ', '：': ': ', '“': '"', '”': '"',
+            '（': ' (', '）': ') ', '【': ' [', '】': '] '
+        }
+        for k, v in replacements.items():
+            text = text.replace(k, v)
+        text = re.sub(r' +', ' ', text)
+        text = re.sub(r' ,', ',', text)
+        return text.strip()
+
+    def translate(self, text, mode="Auto (智能双向检测)", model="Auto / opus-mt-zh-en (自动检测/自动下载)", device="auto", clean_punctuation=True, keep_in_memory=True, prefix="", suffix=""):
+        original_text = text if text is not None else ""
         if not text or not text.strip():
-            return ("",)
+            return ("", original_text)
+
+        has_chinese = bool(re.search(r'[\u4e00-\u9fa5]', text))
+
+        # 确定实际的翻译方向和模型仓库
+        target_repo = "Helsinki-NLP/opus-mt-zh-en"
+        folder_name = "opus-mt-zh-en"
+
+        if mode == "EN -> ZH (英译中)":
+            target_repo = "Helsinki-NLP/opus-mt-en-zh"
+            folder_name = "opus-mt-en-zh"
+        elif mode == "ZH -> EN (中译英)":
+            target_repo = "Helsinki-NLP/opus-mt-zh-en"
+            folder_name = "opus-mt-zh-en"
+        else: # Auto
+            if has_chinese:
+                target_repo = "Helsinki-NLP/opus-mt-zh-en"
+                folder_name = "opus-mt-zh-en"
+            else:
+                target_repo = "Helsinki-NLP/opus-mt-en-zh"
+                folder_name = "opus-mt-en-zh"
 
         choices, found_map = get_translator_models()
         model_path = found_map.get(model, None)
 
-        if not model_path or not os.path.exists(model_path):
+        # 如果用户选的是 Auto 或者特定名称匹配上了
+        if not model_path or "Auto" in model or not os.path.exists(model_path):
             search_dirs = [folder_paths.models_dir] if hasattr(folder_paths, "models_dir") else []
             aki_models = r"D:\ComfyUI-aki-v1.3\models"
             if os.path.exists(aki_models):
@@ -254,10 +296,10 @@ class PJ_Text_Translator:
             possible_paths = []
             for root_dir in search_dirs:
                 possible_paths.extend([
-                    os.path.join(root_dir, "prompt_generator", "opus-mt-zh-en"),
-                    os.path.join(root_dir, "LLM", "opus-mt-zh-en"),
-                    os.path.join(root_dir, "transformers", "opus-mt-zh-en"),
-                    os.path.join(root_dir, "opus-mt-zh-en"),
+                    os.path.join(root_dir, "prompt_generator", folder_name),
+                    os.path.join(root_dir, "LLM", folder_name),
+                    os.path.join(root_dir, "transformers", folder_name),
+                    os.path.join(root_dir, folder_name),
                 ])
             for p in possible_paths:
                 if os.path.exists(os.path.join(p, "config.json")):
@@ -265,8 +307,8 @@ class PJ_Text_Translator:
                     break
 
         if not model_path or not os.path.exists(os.path.join(model_path, "config.json")):
-            target_dir = os.path.join(folder_paths.models_dir, "prompt_generator", "opus-mt-zh-en")
-            model_path = download_opus_model_if_missing(target_dir)
+            target_dir = os.path.join(folder_paths.models_dir, "prompt_generator", folder_name)
+            model_path = download_opus_model_if_missing(target_dir, repo_id=target_repo)
 
         if device == "auto":
             target_device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -302,6 +344,12 @@ class PJ_Text_Translator:
             translated_lines.append(out_str)
 
         final_result = '\n'.join(translated_lines)
+        if clean_punctuation and folder_name == "opus-mt-zh-en":
+            final_result = self.clean_text_punctuation(final_result)
+
+        # 拼接前缀和后缀
+        final_parts = [p.strip() for p in [prefix, final_result, suffix] if p and p.strip()]
+        final_result = ", ".join(final_parts) if folder_name == "opus-mt-zh-en" else "".join(final_parts)
 
         if not keep_in_memory and cache_key not in TRANSLATOR_CACHE:
             del net
@@ -309,7 +357,7 @@ class PJ_Text_Translator:
             if target_device == "cuda":
                 torch.cuda.empty_cache()
 
-        return (final_result,)
+        return (final_result, original_text)
 
 NODE_CLASS_MAPPINGS = { 
     "PJ_Latent_Generator": PJ_Latent_Generator, 
@@ -321,7 +369,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "PJ_Latent_Generator": "PJ Latent Generator", 
     "PJ_Video_Latent_Generator": "PJ Video Latent Generator", 
     "PJ_Image_Handler": "PJ Image Preview/Save",
-    "PJ_Text_Translator": "PJ Text Translator (ZH -> EN)"
+    "PJ_Text_Translator": "PJ Text Translator (Bi-Directional)"
 }
 
 WEB_DIRECTORY = "./js"
