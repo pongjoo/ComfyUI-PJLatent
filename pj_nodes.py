@@ -6,6 +6,8 @@ import numpy as np
 from PIL import Image
 from PIL.PngImagePlugin import PngInfo
 import folder_paths
+from server import PromptServer
+from aiohttp import web
 
 class PJ_Image_Handler:
     def __init__(self):
@@ -359,17 +361,89 @@ class PJ_Text_Translator:
 
         return (final_result, original_text)
 
+# API route for listing LoRAs in custom directory
+@PromptServer.instance.routes.get("/pj/list_loras")
+async def list_loras(request):
+    folder = request.query.get("folder", "").strip()
+    if not folder or not os.path.isdir(folder):
+        return web.json_response({"files": []})
+    try:
+        files = []
+        for root, dirs, filenames in os.walk(folder):
+            for f in filenames:
+                if f.endswith(('.safetensors', '.ckpt', '.pt')):
+                    rel_path = os.path.relpath(os.path.join(root, f), folder)
+                    rel_path = rel_path.replace("\\", "/")
+                    files.append(rel_path)
+        files.sort()
+        return web.json_response({"files": files})
+    except Exception as e:
+        return web.json_response({"error": str(e), "files": []})
+
+class PJ_Lora_Loader:
+    def __init__(self):
+        self.loaded_lora = None
+
+    @classmethod
+    def INPUT_TYPES(s):
+        return {
+            "required": {
+                "model": ("MODEL",),
+                "clip": ("CLIP",),
+                "lora_directory": ("STRING", {"default": "输入你存放LoRA模型的文件夹路径，例如: E:\\models\\loras"}),
+                "lora_name": ([""],),
+                "strength_model": ("FLOAT", {"default": 1.0, "min": -100.0, "max": 100.0, "step": 0.01}),
+                "strength_clip": ("FLOAT", {"default": 1.0, "min": -100.0, "max": 100.0, "step": 0.01}),
+            }
+        }
+
+    RETURN_TYPES = ("MODEL", "CLIP")
+    FUNCTION = "load_lora"
+    CATEGORY = "PJ_Nodes/Model"
+
+    def load_lora(self, model, clip, lora_directory, lora_name, strength_model, strength_clip):
+        if strength_model == 0 and strength_clip == 0:
+            return (model, clip)
+
+        if not lora_name or lora_name == "":
+            return (model, clip)
+
+        # Build full path
+        lora_path = os.path.join(lora_directory, lora_name)
+        if not os.path.exists(lora_path):
+            raise FileNotFoundError(f"找不到指定的LoRA模型文件: {lora_path}")
+
+        lora = None
+        lora_metadata = None
+        if self.loaded_lora is not None:
+            if self.loaded_lora[0] == lora_path:
+                lora = self.loaded_lora[1]
+                lora_metadata = self.loaded_lora[2] if len(self.loaded_lora) > 2 else None
+            else:
+                self.loaded_lora = None
+
+        if lora is None:
+            import comfy.utils
+            lora, lora_metadata = comfy.utils.load_torch_file(lora_path, safe_load=True, return_metadata=True)
+            self.loaded_lora = (lora_path, lora, lora_metadata)
+
+        import comfy.sd
+        model_lora, clip_lora = comfy.sd.load_lora_for_models(model, clip, lora, strength_model, strength_clip, lora_metadata=lora_metadata)
+        return (model_lora, clip_lora)
+
 NODE_CLASS_MAPPINGS = { 
     "PJ_Latent_Generator": PJ_Latent_Generator, 
     "PJ_Video_Latent_Generator": PJ_Video_Latent_Generator, 
     "PJ_Image_Handler": PJ_Image_Handler,
-    "PJ_Text_Translator": PJ_Text_Translator
+    "PJ_Text_Translator": PJ_Text_Translator,
+    "PJ_Lora_Loader": PJ_Lora_Loader
 }
 NODE_DISPLAY_NAME_MAPPINGS = { 
     "PJ_Latent_Generator": "PJ Latent Generator", 
     "PJ_Video_Latent_Generator": "PJ Video Latent Generator", 
     "PJ_Image_Handler": "PJ Image Preview/Save",
-    "PJ_Text_Translator": "PJ Text Translator (Bi-Directional)"
+    "PJ_Text_Translator": "PJ Text Translator (Bi-Directional)",
+    "PJ_Lora_Loader": "PJ Lora Loader (Custom Path)"
 }
 
 WEB_DIRECTORY = "./js"

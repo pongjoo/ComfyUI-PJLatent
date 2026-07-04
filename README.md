@@ -28,6 +28,11 @@ A powerful and convenient custom node suite for ComfyUI, providing aspect-ratio-
 - **视频维度适配**: 专门针对视频大模型（如 HunyuanVideo / Wan 等），支持按秒设置视频时长（按 16 FPS 自动计算帧数 `秒数 * 16 + 1`）。
 - **16倍倍数对齐与16通道**: 输出符合视频模型要求的 16 通道 5 维视频 Latent 张量。
 
+### 5. PJ Lora Loader (Custom Path) | 自定义路径 LoRA 加载器
+- **智能目录文件扫描 (Custom Path Scan)**: 支持直接输入任何盘符或自定义文件夹路径。节点会自动深度扫描该目录下所有子目录中的 `.safetensors`, `.ckpt`, `.pt` 格式 LoRA 模型。
+- **前端动态下拉联动 (Dynamic Dropdown)**: 当你在前端修改 `lora_directory`（文件夹路径）时，`lora_name` 下拉框会自动通过后台 API 刷新该路径下的所有模型列表，并支持保留已有选值，无需手动输入文件名。
+- **满血功能对齐**: 支持与原生 LoRA 加载器完全一致的 `strength_model` 和 `strength_clip` 强度调节。
+
 ---
 
 ## 🛠️ Installation / 安装说明
@@ -56,6 +61,15 @@ A powerful and convenient custom node suite for ComfyUI, providing aspect-ratio-
   若手动下载，请将解压后的核心模型文件放入以下路径：
   - 中译英: `ComfyUI/models/prompt_generator/opus-mt-zh-en/`
   - 英译中: `ComfyUI/models/prompt_generator/opus-mt-en-zh/`
+
+### 📄 PJ Lora Loader (Custom Path)
+- **输入参数**:
+  - `model`: 输入扩散模型。
+  - `clip`: 输入 CLIP 模型。
+  - `lora_directory`: 输入你存放 LoRA 的自定义绝对路径文件夹，如 `E:\Lora_Backup` 或 `D:\SD_Webui\models\Lora`。
+  - `lora_name`: 点击下拉菜单，选择该文件夹中的 LoRA 模型名称（支持子目录路径显示）。
+  - `strength_model`: 模型端强度（默认 1.0）。
+  - `strength_clip`: CLIP 端强度（默认 1.0）。
 
 ### 🖼️ PJ Image Preview/Save
 - **输入参数**:
