@@ -403,6 +403,15 @@ class PJ_Lora_Loader:
     FUNCTION = "load_lora"
     CATEGORY = "PJ_Nodes/Model"
 
+    @classmethod
+    def VALIDATE_INPUTS(s, model, lora_directory, lora_name, strength_model, strength_clip, clip=None):
+        if not lora_name or lora_name == "":
+            return True
+        lora_path = os.path.join(lora_directory, lora_name)
+        if not os.path.exists(lora_path):
+            return f"找不到指定的LoRA模型文件: {lora_path}"
+        return True
+
     def load_lora(self, model, lora_directory, lora_name, strength_model, strength_clip, clip=None):
         if strength_model == 0 and strength_clip == 0:
             return (model, clip)
