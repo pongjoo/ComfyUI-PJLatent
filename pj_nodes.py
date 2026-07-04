@@ -389,11 +389,13 @@ class PJ_Lora_Loader:
         return {
             "required": {
                 "model": ("MODEL",),
-                "clip": ("CLIP",),
                 "lora_directory": ("STRING", {"default": "输入你存放LoRA模型的文件夹路径，例如: E:\\models\\loras"}),
                 "lora_name": ([""],),
                 "strength_model": ("FLOAT", {"default": 1.0, "min": -100.0, "max": 100.0, "step": 0.01}),
                 "strength_clip": ("FLOAT", {"default": 1.0, "min": -100.0, "max": 100.0, "step": 0.01}),
+            },
+            "optional": {
+                "clip": ("CLIP",),
             }
         }
 
@@ -401,7 +403,7 @@ class PJ_Lora_Loader:
     FUNCTION = "load_lora"
     CATEGORY = "PJ_Nodes/Model"
 
-    def load_lora(self, model, clip, lora_directory, lora_name, strength_model, strength_clip):
+    def load_lora(self, model, lora_directory, lora_name, strength_model, strength_clip, clip=None):
         if strength_model == 0 and strength_clip == 0:
             return (model, clip)
 
