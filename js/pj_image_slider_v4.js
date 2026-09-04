@@ -82,7 +82,7 @@ app.registerExtension({
                 // and cannot block mouse events on the canvas, even if ComfyUI recreates it.
                 if (this.widgets) {
                     const originalLength = this.widgets.length;
-                    this.widgets = this.widgets.filter(w => w.name === "save_image" || w.name === "filename_prefix");
+                    this.widgets = this.widgets.filter(w => w.name === "save_image" || w.name === "filename_prefix" || w.name === "保存图片" || w.name === "文件名前缀");
                     if (this.widgets.length !== originalLength) {
                         this.setDirtyCanvas(true);
                     }

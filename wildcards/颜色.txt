@@ -1,0 +1,34 @@
+# ##### A wide range of colors that Wan, Flux, and other AI engines understand.
+# ##### Does not include black to help with adding text and other designs to clothing.
+# ##### Does not include beige and khaki because Wan often blends that color into skin resulting in strange output.
+white
+charcoal grey
+grey
+light grey
+red
+crimson
+maroon
+magenta
+pink
+neon pink
+light pink
+purple
+lilac-purple
+rich purple
+lavender
+blue
+royal blue
+light blue
+turquoise
+green
+mint green
+dark green
+neon green
+sea-green
+yellow
+pale yellow
+neon yellow
+cream-colored
+orange
+coral
+neon orange

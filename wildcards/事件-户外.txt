@@ -1,0 +1,5 @@
+# ##### Outdoor activities
+walking {towards the camera|away from the camera} {in the park|on a beach|on a city sidewalk with shops on one side and busy traffic on the street next to the sidewalk|in an office building hallway}
+sitting on a park bench licking an ice cream cone with her tongue
+walking {outdoors|on a city sidewalk {_|at night}}. she walks {towards the camera|away from the camera} through a rainstorm with wet hair and wet clothes stuck to her skin, with water running down her face and her body
+hiking {towards the camera|away from the camera} in a rugged mountain landscape

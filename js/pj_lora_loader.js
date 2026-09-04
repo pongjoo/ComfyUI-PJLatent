@@ -9,8 +9,8 @@ app.registerExtension({
             nodeType.prototype.onNodeCreated = function () {
                 onNodeCreated?.apply(this, arguments);
 
-                const dirWidget = this.widgets.find(w => w.name === "lora_directory");
-                const nameWidget = this.widgets.find(w => w.name === "lora_name");
+                const dirWidget = this.widgets.find(w => w.name === "LoRA文件夹路径" || w.name === "lora_directory");
+                const nameWidget = this.widgets.find(w => w.name === "LoRA文件" || w.name === "lora_name");
 
                 if (dirWidget && nameWidget) {
                     const updateLoras = async () => {
@@ -26,7 +26,6 @@ app.registerExtension({
                             const data = await response.json();
                             if (data.files && data.files.length > 0) {
                                 nameWidget.options.values = data.files;
-                                // Keep the current value if it's still in the list, otherwise select the first one
                                 if (!data.files.includes(nameWidget.value)) {
                                     nameWidget.value = data.files[0];
                                 }
@@ -41,22 +40,19 @@ app.registerExtension({
                         }
                     };
 
-                    // Listen to value changes
                     dirWidget.callback = function (value) {
                         updateLoras();
                     };
 
-                    // Also run initially when node is created
                     setTimeout(updateLoras, 100);
                 }
             };
             
-            // To ensure it updates when workflow is loaded
             const onConfigure = nodeType.prototype.onConfigure;
             nodeType.prototype.onConfigure = function () {
                 onConfigure?.apply(this, arguments);
-                const dirWidget = this.widgets.find(w => w.name === "lora_directory");
-                const nameWidget = this.widgets.find(w => w.name === "lora_name");
+                const dirWidget = this.widgets.find(w => w.name === "LoRA文件夹路径" || w.name === "lora_directory");
+                const nameWidget = this.widgets.find(w => w.name === "LoRA文件" || w.name === "lora_name");
                 if (dirWidget && nameWidget) {
                     const currentVal = nameWidget.value;
                     const folder = dirWidget.value;

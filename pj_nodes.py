@@ -6,8 +6,38 @@ import numpy as np
 from PIL import Image
 from PIL.PngImagePlugin import PngInfo
 import folder_paths
-from server import PromptServer
-from aiohttp import web
+try:
+    from server import PromptServer
+    from aiohttp import web
+except ImportError:
+    PromptServer = None
+    web = None
+
+try:
+    from .pj_image_stitcher import PJ_Image_Stitcher
+except (ImportError, ValueError):
+    from pj_image_stitcher import PJ_Image_Stitcher
+
+try:
+    from .pj_image_slicer import PJ_Image_Interactive_Slicer
+except (ImportError, ValueError):
+    from pj_image_slicer import PJ_Image_Interactive_Slicer
+
+try:
+    from .pj_wildcard_node import PJWildcardNode, PJWildcardParserNode, PJTextCombine
+    from .pj_json_extractor import PJ_JSON_To_Prompt
+except (ImportError, ValueError):
+    from pj_wildcard_node import PJWildcardNode, PJWildcardParserNode, PJTextCombine
+    from pj_json_extractor import PJ_JSON_To_Prompt
+
+try:
+    from .batch_video_loader import BatchVideoLoader, BatchVideoPathProvider
+    from .batch_video_saver import BatchVideoSaver
+    from .bridge_official_video import PJ_LoadVideoPathForOfficial
+except (ImportError, ValueError):
+    from batch_video_loader import BatchVideoLoader, BatchVideoPathProvider
+    from batch_video_saver import BatchVideoSaver
+    from bridge_official_video import PJ_LoadVideoPathForOfficial
 
 class PJ_Image_Handler:
     def __init__(self):
@@ -18,11 +48,11 @@ class PJ_Image_Handler:
     def INPUT_TYPES(s):
         return {
             "required": {
-                "images": ("IMAGE", ),
-                "save_image": ("BOOLEAN", {"default": False, "label_on": "Save Enabled", "label_off": "Preview Only"}),
-                "filename_prefix": ("STRING", {"default": "PJ_Image"}),
+                "图片A": ("IMAGE", ),
+                "保存图片": ("BOOLEAN", {"default": False, "label_on": "开启保存", "label_off": "仅预览"}),
+                "文件名前缀": ("STRING", {"default": "PJ_Image"}),
             },
-            "optional": { "images_b": ("IMAGE", ) },
+            "optional": { "图片B_对比图": ("IMAGE", ) },
             "hidden": {"prompt": "PROMPT", "extra_pnginfo": "EXTRA_PNGINFO"},
         }
 
@@ -31,7 +61,14 @@ class PJ_Image_Handler:
     OUTPUT_NODE = True
     CATEGORY = "PJ_Nodes/Image"
 
-    def process(self, images, save_image, filename_prefix="PJ_Image", images_b=None, prompt=None, extra_pnginfo=None):
+    def process(self, **kwargs):
+        images = kwargs.get("图片A", kwargs.get("images"))
+        save_image = kwargs.get("保存图片", kwargs.get("save_image", False))
+        filename_prefix = kwargs.get("文件名前缀", kwargs.get("filename_prefix", "PJ_Image"))
+        images_b = kwargs.get("图片B_对比图", kwargs.get("images_b", None))
+        prompt = kwargs.get("prompt", None)
+        extra_pnginfo = kwargs.get("extra_pnginfo", None)
+
         # 1. 准备元数据 (仅用于 A 图)
         metadata = PngInfo()
         if prompt is not None:
@@ -48,8 +85,6 @@ class PJ_Image_Handler:
             base_dir = self.output_dir if is_permanent_save else folder_paths.get_temp_directory()
             type_str = "output" if is_permanent_save else "temp"
 
-            # 修复：get_save_image_path 的参数应为 (prefix, dir, width, height)
-            # img_batch[0].shape 为 [H, W, C]，所以 shape[1] 是宽，shape[0] 是高
             full_path, filename, counter, subfolder, _ = folder_paths.get_save_image_path(filename_prefix, base_dir, img_batch[0].shape[1], img_batch[0].shape[0])
             results = []
             
@@ -57,8 +92,6 @@ class PJ_Image_Handler:
                 i = 255. * img.cpu().numpy()
                 pil_img = Image.fromarray(np.clip(i, 0, 255).astype(np.uint8))
                 
-                # 修复：ComfyUI 的 get_save_image_path 逻辑要求文件名以 "_{数字}_.png" 结尾才能正确识别并递增 Counter
-                # 否则每次运行 get_save_image_path 都会返回 1
                 suffix_str = f"_{tag}" if tag else ""
                 file_name = f"{filename}_{counter:05}{suffix_str}_.png"
                 
@@ -77,7 +110,7 @@ class PJ_Image_Handler:
         # 根据用户要求：如果开启 save_image，只保存图片 A 到 output
         saved_images = []
         if save_image:
-            saved_images = handle_batch(images, "", True) # A图作为主图保存，不带额外 Tag
+            saved_images = handle_batch(images, "", True)
 
         # 始终返回 images 键，以便 ComfyUI 的历史记录和资产管理器在两种模式下都能捕捉到图片
         ui_images = saved_images if (save_image and saved_images) else preview_a
@@ -85,17 +118,26 @@ class PJ_Image_Handler:
         # 返回 UI 数据供 JS 使用
         return { "ui": { "a_images": preview_a, "b_images": preview_b, "images": ui_images } }
 
-# 移除了 PJ_Image_Comparer 类，功能已合并
-
 class PJ_Latent_Generator:
     def __init__(self): pass
     @classmethod
-    def INPUT_TYPES(s): return {"required": {"aspect_ratio": (["1:1", "4:3", "3:4", "16:9", "9:16", "2:3", "3:2", "21:9", "9:21"],), "longest_side": ("INT", {"default": 1024, "min": 64, "max": 8192, "step": 8}), "batch_size": ("INT", {"default": 1, "min": 1, "max": 64}),}}
+    def INPUT_TYPES(s):
+        return {
+            "required": {
+                "宽高比": (["1:1", "4:3", "3:4", "16:9", "9:16", "2:3", "3:2", "21:9", "9:21"], {"default": "1:1"}),
+                "最长边": ("INT", {"default": 1024, "min": 64, "max": 8192, "step": 8}),
+                "批次大小": ("INT", {"default": 1, "min": 1, "max": 64}),
+            }
+        }
     RETURN_TYPES = ("LATENT", "INT", "INT")
-    RETURN_NAMES = ("LATENT", "width", "height")
+    RETURN_NAMES = ("潜空间", "宽度", "高度")
     FUNCTION = "generate"
     CATEGORY = "PJ_Nodes/Latent"
-    def generate(self, aspect_ratio, longest_side, batch_size):
+    def generate(self, **kwargs):
+        aspect_ratio = kwargs.get("宽高比", kwargs.get("aspect_ratio", "1:1"))
+        longest_side = kwargs.get("最长边", kwargs.get("longest_side", 1024))
+        batch_size = kwargs.get("批次大小", kwargs.get("batch_size", 1))
+
         w_ratio, h_ratio = map(int, aspect_ratio.split(":"))
         width, height = (longest_side, int(longest_side*(h_ratio/w_ratio))) if w_ratio > h_ratio else (int(longest_side*(w_ratio/h_ratio)), longest_side) if h_ratio > w_ratio else (longest_side, longest_side)
         return ({"samples": torch.zeros([batch_size, 4, (height//8)*8//8, (width//8)*8//8])}, (width//8)*8, (height//8)*8)
@@ -103,12 +145,25 @@ class PJ_Latent_Generator:
 class PJ_Video_Latent_Generator:
     def __init__(self): pass
     @classmethod
-    def INPUT_TYPES(s): return {"required": {"aspect_ratio": (["1:1", "4:3", "3:4", "16:9", "9:16", "2:3", "3:2", "21:9", "9:21"],), "longest_side": ("INT", {"default": 1024, "min": 64, "max": 8192, "step": 16}), "duration_seconds": ("INT", {"default": 5, "min": 1, "max": 60, "step": 1}), "batch_size": ("INT", {"default": 1, "min": 1, "max": 64}),}}
+    def INPUT_TYPES(s):
+        return {
+            "required": {
+                "宽高比": (["1:1", "4:3", "3:4", "16:9", "9:16", "2:3", "3:2", "21:9", "9:21"], {"default": "16:9"}),
+                "最长边": ("INT", {"default": 1024, "min": 64, "max": 8192, "step": 16}),
+                "视频时长_秒": ("INT", {"default": 5, "min": 1, "max": 60, "step": 1}),
+                "批次大小": ("INT", {"default": 1, "min": 1, "max": 64}),
+            }
+        }
     RETURN_TYPES = ("LATENT", "INT", "INT", "INT", "INT")
-    RETURN_NAMES = ("LATENT", "width", "height", "length", "batch_size")
+    RETURN_NAMES = ("潜空间", "宽度", "高度", "帧数", "批次大小")
     FUNCTION = "generate"
     CATEGORY = "PJ_Nodes/Latent"
-    def generate(self, aspect_ratio, longest_side, duration_seconds, batch_size):
+    def generate(self, **kwargs):
+        aspect_ratio = kwargs.get("宽高比", kwargs.get("aspect_ratio", "16:9"))
+        longest_side = kwargs.get("最长边", kwargs.get("longest_side", 1024))
+        duration_seconds = kwargs.get("视频时长_秒", kwargs.get("duration_seconds", 5))
+        batch_size = kwargs.get("批次大小", kwargs.get("batch_size", 1))
+
         ls = (longest_side + 8) // 16 * 16
         w, h = map(int, aspect_ratio.split(":"))
         width, height = (ls, int(ls*(h/w))) if w > h else (int(ls*(w/h)), ls) if h > w else (ls, ls)
@@ -228,21 +283,21 @@ class PJ_Text_Translator:
         choices, _ = get_translator_models()
         return {
             "required": {
-                "text": ("STRING", {"multiline": True, "default": "", "dynamicPrompts": False}),
-                "mode": (["Auto (智能双向检测)", "ZH -> EN (中译英)", "EN -> ZH (英译中)"], {"default": "Auto (智能双向检测)"}),
-                "model": (choices, ),
-                "device": (["auto", "cuda", "cpu"], {"default": "auto"}),
-                "clean_punctuation": ("BOOLEAN", {"default": True, "label_on": "Clean Punctuation", "label_off": "Keep Original"}),
-                "keep_in_memory": ("BOOLEAN", {"default": True}),
+                "文本内容": ("STRING", {"multiline": True, "default": "", "dynamicPrompts": False}),
+                "翻译模式": (["智能双向检测 (Auto)", "中译英 (ZH -> EN)", "英译中 (EN -> ZH)"], {"default": "智能双向检测 (Auto)"}),
+                "翻译模型": (choices, ),
+                "运行设备": (["auto", "cuda", "cpu"], {"default": "auto"}),
+                "规范标点符号": ("BOOLEAN", {"default": True, "label_on": "规范化英文标点", "label_off": "保留原始标点"}),
+                "常驻显存": ("BOOLEAN", {"default": True, "label_on": "保持常驻", "label_off": "用完即释放"}),
             },
             "optional": {
-                "prefix": ("STRING", {"multiline": False, "default": "", "dynamicPrompts": False}),
-                "suffix": ("STRING", {"multiline": False, "default": "", "dynamicPrompts": False}),
+                "前缀文本": ("STRING", {"multiline": False, "default": "", "dynamicPrompts": False}),
+                "后缀文本": ("STRING", {"multiline": False, "default": "", "dynamicPrompts": False}),
             }
         }
 
     RETURN_TYPES = ("STRING", "STRING")
-    RETURN_NAMES = ("text", "original_text")
+    RETURN_NAMES = ("翻译结果", "原始文本")
     FUNCTION = "translate"
     CATEGORY = "PJ_Nodes/Text"
 
@@ -259,7 +314,16 @@ class PJ_Text_Translator:
         text = re.sub(r' ,', ',', text)
         return text.strip()
 
-    def translate(self, text, mode="Auto (智能双向检测)", model="Auto / opus-mt-zh-en (自动检测/自动下载)", device="auto", clean_punctuation=True, keep_in_memory=True, prefix="", suffix=""):
+    def translate(self, **kwargs):
+        text = kwargs.get("文本内容", kwargs.get("text", ""))
+        mode = kwargs.get("翻译模式", kwargs.get("mode", "智能双向检测 (Auto)"))
+        model = kwargs.get("翻译模型", kwargs.get("model", "Auto / opus-mt-zh-en (自动检测/自动下载)"))
+        device = kwargs.get("运行设备", kwargs.get("device", "auto"))
+        clean_punctuation = kwargs.get("规范标点符号", kwargs.get("clean_punctuation", True))
+        keep_in_memory = kwargs.get("常驻显存", kwargs.get("keep_in_memory", True))
+        prefix = kwargs.get("前缀文本", kwargs.get("prefix", ""))
+        suffix = kwargs.get("后缀文本", kwargs.get("suffix", ""))
+
         original_text = text if text is not None else ""
         if not text or not text.strip():
             return ("", original_text)
@@ -270,10 +334,10 @@ class PJ_Text_Translator:
         target_repo = "Helsinki-NLP/opus-mt-zh-en"
         folder_name = "opus-mt-zh-en"
 
-        if mode == "EN -> ZH (英译中)":
+        if "英译中" in mode or "EN -> ZH" in mode:
             target_repo = "Helsinki-NLP/opus-mt-en-zh"
             folder_name = "opus-mt-en-zh"
-        elif mode == "ZH -> EN (中译英)":
+        elif "中译英" in mode or "ZH -> EN" in mode:
             target_repo = "Helsinki-NLP/opus-mt-zh-en"
             folder_name = "opus-mt-zh-en"
         else: # Auto
@@ -361,24 +425,25 @@ class PJ_Text_Translator:
 
         return (final_result, original_text)
 
-# API route for listing LoRAs in custom directory
-@PromptServer.instance.routes.get("/pj/list_loras")
-async def list_loras(request):
-    folder = request.query.get("folder", "").strip()
-    if not folder or not os.path.isdir(folder):
-        return web.json_response({"files": []})
-    try:
-        files = []
-        for root, dirs, filenames in os.walk(folder):
-            for f in filenames:
-                if f.endswith(('.safetensors', '.ckpt', '.pt')):
-                    rel_path = os.path.relpath(os.path.join(root, f), folder)
-                    rel_path = rel_path.replace("\\", "/")
-                    files.append(rel_path)
-        files.sort()
-        return web.json_response({"files": files})
-    except Exception as e:
-        return web.json_response({"error": str(e), "files": []})
+# API 路由：用于动态列出自定义文件夹中的 LoRA 模型文件
+if PromptServer is not None and getattr(PromptServer, "instance", None) is not None:
+    @PromptServer.instance.routes.get("/pj/list_loras")
+    async def list_loras(request):
+        folder = request.query.get("folder", "").strip()
+        if not folder or not os.path.isdir(folder):
+            return web.json_response({"files": []})
+        try:
+            files = []
+            for root, dirs, filenames in os.walk(folder):
+                for f in filenames:
+                    if f.endswith(('.safetensors', '.ckpt', '.pt')):
+                        rel_path = os.path.relpath(os.path.join(root, f), folder)
+                        rel_path = rel_path.replace("\\", "/")
+                        files.append(rel_path)
+            files.sort()
+            return web.json_response({"files": files})
+        except Exception as e:
+            return web.json_response({"error": str(e), "files": []})
 
 class PJ_Lora_Loader:
     def __init__(self):
@@ -388,23 +453,26 @@ class PJ_Lora_Loader:
     def INPUT_TYPES(s):
         return {
             "required": {
-                "model": ("MODEL",),
-                "lora_directory": ("STRING", {"default": "输入你存放LoRA模型的文件夹路径，例如: E:\\models\\loras"}),
-                "lora_name": ([""],),
-                "strength_model": ("FLOAT", {"default": 1.0, "min": -100.0, "max": 100.0, "step": 0.01}),
-                "strength_clip": ("FLOAT", {"default": 1.0, "min": -100.0, "max": 100.0, "step": 0.01}),
+                "模型": ("MODEL",),
+                "LoRA文件夹路径": ("STRING", {"default": "输入你存放LoRA模型的文件夹路径，例如: E:\\models\\loras"}),
+                "LoRA文件": ([""],),
+                "模型权重": ("FLOAT", {"default": 1.0, "min": -100.0, "max": 100.0, "step": 0.01}),
+                "CLIP权重": ("FLOAT", {"default": 1.0, "min": -100.0, "max": 100.0, "step": 0.01}),
             },
             "optional": {
-                "clip": ("CLIP",),
+                "CLIP": ("CLIP",),
             }
         }
 
     RETURN_TYPES = ("MODEL", "CLIP")
+    RETURN_NAMES = ("模型", "CLIP")
     FUNCTION = "load_lora"
     CATEGORY = "PJ_Nodes/Model"
 
     @classmethod
-    def VALIDATE_INPUTS(s, model, lora_directory, lora_name, strength_model, strength_clip, clip=None):
+    def VALIDATE_INPUTS(s, **kwargs):
+        lora_name = kwargs.get("LoRA文件", kwargs.get("lora_name", ""))
+        lora_directory = kwargs.get("LoRA文件夹路径", kwargs.get("lora_directory", ""))
         if not lora_name or lora_name == "":
             return True
         lora_path = os.path.join(lora_directory, lora_name)
@@ -412,14 +480,20 @@ class PJ_Lora_Loader:
             return f"找不到指定的LoRA模型文件: {lora_path}"
         return True
 
-    def load_lora(self, model, lora_directory, lora_name, strength_model, strength_clip, clip=None):
+    def load_lora(self, **kwargs):
+        model = kwargs.get("模型", kwargs.get("model"))
+        clip = kwargs.get("CLIP", kwargs.get("clip", None))
+        lora_directory = kwargs.get("LoRA文件夹路径", kwargs.get("lora_directory", ""))
+        lora_name = kwargs.get("LoRA文件", kwargs.get("lora_name", ""))
+        strength_model = kwargs.get("模型权重", kwargs.get("strength_model", 1.0))
+        strength_clip = kwargs.get("CLIP权重", kwargs.get("strength_clip", 1.0))
+
         if strength_model == 0 and strength_clip == 0:
             return (model, clip)
 
         if not lora_name or lora_name == "":
             return (model, clip)
 
-        # Build full path
         lora_path = os.path.join(lora_directory, lora_name)
         if not os.path.exists(lora_path):
             raise FileNotFoundError(f"找不到指定的LoRA模型文件: {lora_path}")
@@ -447,14 +521,38 @@ NODE_CLASS_MAPPINGS = {
     "PJ_Video_Latent_Generator": PJ_Video_Latent_Generator, 
     "PJ_Image_Handler": PJ_Image_Handler,
     "PJ_Text_Translator": PJ_Text_Translator,
-    "PJ_Lora_Loader": PJ_Lora_Loader
+    "PJ_Image_Stitcher": PJ_Image_Stitcher,
+    "PJ_Image_Interactive_Slicer": PJ_Image_Interactive_Slicer,
+    "PJ_Lora_Loader": PJ_Lora_Loader,
+    # PJ Text Nodes
+    "PJWildcardNode": PJWildcardNode,
+    "PJWildcardParserNode": PJWildcardParserNode,
+    "PJTextCombine": PJTextCombine,
+    "PJ_JSON_To_Prompt": PJ_JSON_To_Prompt,
+    # PJ Video Nodes
+    "BatchVideoLoader": BatchVideoLoader,
+    "BatchVideoPathProvider": BatchVideoPathProvider,
+    "BatchVideoSaver": BatchVideoSaver,
+    "PJ_LoadVideoPathForOfficial": PJ_LoadVideoPathForOfficial
 }
 NODE_DISPLAY_NAME_MAPPINGS = { 
-    "PJ_Latent_Generator": "PJ Latent Generator", 
-    "PJ_Video_Latent_Generator": "PJ Video Latent Generator", 
-    "PJ_Image_Handler": "PJ Image Preview/Save",
-    "PJ_Text_Translator": "PJ Text Translator (Bi-Directional)",
-    "PJ_Lora_Loader": "PJ Lora Loader (Custom Path)"
+    "PJ_Latent_Generator": "PJ Latent 图像潜空间生成器", 
+    "PJ_Video_Latent_Generator": "PJ Video 视频潜空间生成器", 
+    "PJ_Image_Handler": "PJ 图像预览与保存 (双图对比)",
+    "PJ_Text_Translator": "PJ 智能双向文本翻译器 (中英互译)",
+    "PJ_Image_Stitcher": "PJ 图像智能记忆拼接器",
+    "PJ_Image_Interactive_Slicer": "PJ 图像交互式智能分割器",
+    "PJ_Lora_Loader": "PJ LoRA 自定义路径加载器",
+    # PJ Text Nodes
+    "PJWildcardNode": "PJ-通配符单选",
+    "PJWildcardParserNode": "PJ-通配符大师",
+    "PJTextCombine": "PJ-动态文本拼接",
+    "PJ_JSON_To_Prompt": "PJ-JSON提示词提取器 (Gemma 4适配)",
+    # PJ Video Nodes
+    "BatchVideoLoader": "PJ-视频加载 (Batch Video Loader)",
+    "BatchVideoPathProvider": "PJ-视频路径加载 (Batch Video Path)",
+    "BatchVideoSaver": "PJ-视频与标签保存 (Batch Video Saver)",
+    "PJ_LoadVideoPathForOfficial": "PJ-官方Gemini格式转换 (Bridge to Official)"
 }
 
 WEB_DIRECTORY = "./js"
