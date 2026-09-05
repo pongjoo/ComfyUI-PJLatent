@@ -70,6 +70,11 @@ class PJ_Image_Slice_Reassembler:
     def INPUT_TYPES(s):
         optional_dict = {
             "基底原图": ("IMAGE", ),
+            "切片数据": ("STRING", {
+                "forceInput": True,
+                "multiline": False,
+                "tooltip": "请连接 PJ 图像交互式智能分割器 的【切片数据】输出端口"
+            }),
             "批次替换图片": ("IMAGE", ),
             "批次对应块序号": ("STRING", {
                 "default": "",
@@ -89,11 +94,6 @@ class PJ_Image_Slice_Reassembler:
 
         return {
             "required": {
-                "切片数据": ("STRING", {
-                    "forceInput": True,
-                    "multiline": False,
-                    "tooltip": "请连接 PJ 图像交互式智能分割器 的【切片数据】输出端口"
-                }),
                 "边缘羽化像素": ("INT", {
                     "default": 16,
                     "min": 0,
