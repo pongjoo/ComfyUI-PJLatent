@@ -271,6 +271,31 @@ class PJ_Image_Slice_Reassembler:
             mask_2d = torch.from_numpy(mask_2d_np).to(device=device, dtype=dtype) # [target_h, target_w]
             mask_4d = mask_2d.unsqueeze(0).unsqueeze(-1) # [1, target_h, target_w, 1]
 
+            # 通道与批次自适应对齐 (防止如 Inpaint/抠图/去底等上游节点输出 RGBA 4通道导致尺寸不匹配报错)
+            canvas_c = canvas.shape[-1]
+            r_c = r_tensor.shape[-1]
+            if r_c != canvas_c:
+                if canvas_c == 3 and r_c == 4:
+                    # RGBA -> RGB: 提取 Alpha 透明度通道与边缘羽化遮罩相乘融合，完美保留半透明区域
+                    alpha_channel = r_tensor[..., 3:4]
+                    mask_4d = mask_4d * alpha_channel
+                    r_tensor = r_tensor[..., :3]
+                elif canvas_c == 4 and r_c == 3:
+                    # RGB -> RGBA: 补充全不透明 Alpha
+                    alpha_fill = torch.ones_like(r_tensor[..., :1])
+                    r_tensor = torch.cat([r_tensor, alpha_fill], dim=-1)
+                elif r_c == 1:
+                    r_tensor = r_tensor.repeat(1, 1, 1, canvas_c)
+                elif canvas_c == 1:
+                    r_tensor = r_tensor[..., :1]
+                elif r_c > canvas_c:
+                    r_tensor = r_tensor[..., :canvas_c]
+                elif r_c < canvas_c:
+                    r_tensor = r_tensor.repeat(1, 1, 1, canvas_c)
+
+            if r_tensor.shape[0] != cur_b and r_tensor.shape[0] == 1:
+                r_tensor = r_tensor.repeat(cur_b, 1, 1, 1)
+
             # 执行混合融合
             sub_canvas = canvas[:, tgt_ys:tgt_ye, tgt_xs:tgt_xe, :]
             blended = sub_canvas * (1.0 - mask_4d) + r_tensor * mask_4d
@@ -279,7 +304,7 @@ class PJ_Image_Slice_Reassembler:
             # 累计更新全图修改区域遮罩
             mask_canvas[:, tgt_ys:tgt_ye, tgt_xs:tgt_xe] = torch.maximum(
                 mask_canvas[:, tgt_ys:tgt_ye, tgt_xs:tgt_xe],
-                mask_2d.unsqueeze(0)
+                (mask_4d[..., 0] if mask_4d.shape[-1] == 1 else mask_4d.mean(dim=-1)).squeeze(0)
             )
 
             replaced_logs.append(
