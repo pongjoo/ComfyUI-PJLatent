@@ -56,8 +56,8 @@ class PJ_Image_Interactive_Slicer:
             }
         }
 
-    RETURN_TYPES = tuple(["IMAGE"] * MAX_OUTPUT_BLOCKS + ["IMAGE", "STRING"])
-    RETURN_NAMES = tuple([f"块{i}_图片" for i in range(1, MAX_OUTPUT_BLOCKS + 1)] + ["全部块_批次", "切片信息"])
+    RETURN_TYPES = tuple(["IMAGE"] * MAX_OUTPUT_BLOCKS + ["IMAGE", "IMAGE", "STRING", "STRING"])
+    RETURN_NAMES = tuple([f"块{i}_图片" for i in range(1, MAX_OUTPUT_BLOCKS + 1)] + ["全部块_批次", "原图", "切片数据", "切片信息"])
     FUNCTION = "slice_image"
     CATEGORY = "PJ_Nodes/Image"
     OUTPUT_NODE = True
@@ -117,7 +117,7 @@ class PJ_Image_Interactive_Slicer:
         if image is None or not isinstance(image, torch.Tensor) or image.shape[0] == 0:
             blank = torch.zeros((1, 64, 64, 3), dtype=torch.float32)
             dummy_outputs = [blank] * MAX_OUTPUT_BLOCKS
-            return tuple(dummy_outputs + [blank, "错误: 未提供有效图片，请先上传图片或连接上游图像"])
+            return tuple(dummy_outputs + [blank, blank, "{}", "错误: 未提供有效图片，请先上传图片或连接上游图像"])
 
         # 1. 保存当前图像的一张临时缩略图供前端交互画布绘制
         preview_info = []
@@ -180,6 +180,7 @@ class PJ_Image_Interactive_Slicer:
 
         # 4. 逐块执行切片
         sliced_blocks = []
+        blocks_meta = []
         block_info_lines = [
             f"【PJ 图像分割汇总信息】",
             f"原图分辨率: {orig_w} x {orig_h}",
@@ -202,6 +203,20 @@ class PJ_Image_Interactive_Slicer:
 
                 bw = x_end - x_start
                 bh = y_end - y_start
+
+                blocks_meta.append({
+                    "block_idx": block_idx,
+                    "row": r,
+                    "col": c,
+                    "x_start": x_start,
+                    "x_end": x_end,
+                    "y_start": y_start,
+                    "y_end": y_end,
+                    "width": bw,
+                    "height": bh,
+                    "inner_box": [x_splits[c], x_splits[c + 1], y_splits[r], y_splits[r + 1]]
+                })
+
                 block_info_lines.append(f"块 {block_idx}: 尺寸 {bw}x{bh} (行{r+1}, 列{c+1}) | 坐标: X[{x_start}:{x_end}], Y[{y_start}:{y_end}]")
                 block_idx += 1
 
@@ -218,16 +233,27 @@ class PJ_Image_Interactive_Slicer:
             if bw == max_bw and bh == max_bh:
                 batch_list.append(b)
             else:
-                canvas = torch.zeros((1, max_bh, max_bw, channels), dtype=dtype, device=device)
-                yo = (max_bh - bh) // 2
-                xo = (max_bw - bw) // 2
-                canvas[:, yo:yo + bh, xo:xo + bw, :] = b
-                batch_list.append(canvas)
+                b_chw = b.permute(0, 3, 1, 2)
+                resized = F.interpolate(b_chw, size=(max_bh, max_bw), mode="bilinear", align_corners=False)
+                batch_list.append(resized.permute(0, 2, 3, 1))
 
         all_batch = torch.cat(batch_list, dim=0)
+
+        # 构造用于原位还原的结构化切片坐标数据
+        slice_meta = {
+            "orig_w": orig_w,
+            "orig_h": orig_h,
+            "num_rows": num_rows,
+            "num_cols": num_cols,
+            "total_blocks": total_blocks,
+            "overlap": overlap,
+            "blocks": {str(b["block_idx"]): b for b in blocks_meta},
+            "blocks_list": blocks_meta
+        }
+        slice_data_json = json.dumps(slice_meta, ensure_ascii=False)
         info_text = "\n".join(block_info_lines)
 
-        # 6. 构造返回元组
+        # 6. 构造返回元组: [块1..30] + 全部块_批次 + 原图 + 切片数据 + 切片信息
         results = []
         for i in range(MAX_OUTPUT_BLOCKS):
             if i < len(sliced_blocks):
@@ -236,6 +262,8 @@ class PJ_Image_Interactive_Slicer:
                 results.append(sliced_blocks[0] if sliced_blocks else torch.zeros((1, 64, 64, 3)))
 
         results.append(all_batch)
+        results.append(image)
+        results.append(slice_data_json)
         results.append(info_text)
 
         return {

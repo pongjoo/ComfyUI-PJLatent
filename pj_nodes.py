@@ -24,6 +24,11 @@ except (ImportError, ValueError):
     from pj_image_slicer import PJ_Image_Interactive_Slicer
 
 try:
+    from .pj_image_reassembler import PJ_Image_Slice_Reassembler
+except (ImportError, ValueError):
+    from pj_image_reassembler import PJ_Image_Slice_Reassembler
+
+try:
     from .pj_wildcard_node import PJWildcardNode, PJWildcardParserNode, PJTextCombine
     from .pj_json_extractor import PJ_JSON_To_Prompt
 except (ImportError, ValueError):
@@ -523,6 +528,7 @@ NODE_CLASS_MAPPINGS = {
     "PJ_Text_Translator": PJ_Text_Translator,
     "PJ_Image_Stitcher": PJ_Image_Stitcher,
     "PJ_Image_Interactive_Slicer": PJ_Image_Interactive_Slicer,
+    "PJ_Image_Slice_Reassembler": PJ_Image_Slice_Reassembler,
     "PJ_Lora_Loader": PJ_Lora_Loader,
     # PJ Text Nodes
     "PJWildcardNode": PJWildcardNode,
@@ -542,6 +548,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "PJ_Text_Translator": "PJ 智能双向文本翻译器 (中英互译)",
     "PJ_Image_Stitcher": "PJ 图像智能记忆拼接器",
     "PJ_Image_Interactive_Slicer": "PJ 图像交互式智能分割器",
+    "PJ_Image_Slice_Reassembler": "PJ 图像切片原位还原器",
     "PJ_Lora_Loader": "PJ LoRA 自定义路径加载器",
     # PJ Text Nodes
     "PJWildcardNode": "PJ-通配符单选",

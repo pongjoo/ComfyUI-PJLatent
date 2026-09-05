@@ -265,6 +265,8 @@ app.registerExtension({
                     desiredNames.push(`块${i}_图片`);
                 }
                 desiredNames.push("全部块_批次");
+                desiredNames.push("原图");
+                desiredNames.push("切片数据");
                 desiredNames.push("切片信息");
 
                 let needsUpdate = false;
@@ -280,11 +282,19 @@ app.registerExtension({
                 }
 
                 if (needsUpdate) {
-                    this.outputs = [];
+                    // 安全更新：裁剪多余端口并复用现有槽位，保护连线不丢失
+                    while (this.outputs.length > desiredNames.length) {
+                        this.removeOutput(this.outputs.length - 1);
+                    }
                     for (let i = 0; i < desiredNames.length; i++) {
                         const name = desiredNames[i];
-                        const type = name === "切片信息" ? "STRING" : "IMAGE";
-                        this.addOutput(name, type);
+                        const type = (name === "切片信息" || name === "切片数据") ? "STRING" : "IMAGE";
+                        if (i < this.outputs.length) {
+                            this.outputs[i].name = name;
+                            this.outputs[i].type = type;
+                        } else {
+                            this.addOutput(name, type);
+                        }
                     }
                     this.setDirtyCanvas(true, true);
                 }
