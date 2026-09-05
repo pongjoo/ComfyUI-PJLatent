@@ -82,20 +82,9 @@ class PJ_Image_Slice_Reassembler:
             }),
         }
 
-        # 直连端口：改了第几块就直接连第几块！例如修改了第5块，直接接入【块5_图片】
-        for i in range(1, 13):
+        # 直连端口：改了第几块就直接连第几块！例如修改了第5块，直接连【块5_图片】
+        for i in range(1, 17):
             optional_dict[f"块{i}_图片"] = ("IMAGE", )
-
-        # 备用灵活槽位：支持手动指定任意 1~30 块序号
-        for i in range(1, 5):
-            optional_dict[f"槽位{i}_图片"] = ("IMAGE", )
-            optional_dict[f"槽位{i}_目标块序号"] = ("INT", {
-                "default": i,
-                "min": 1,
-                "max": 30,
-                "step": 1,
-                "tooltip": f"指定槽位{i}所替换的原图切片序号 (1~30)"
-            })
 
         return {
             "required": {
@@ -172,18 +161,11 @@ class PJ_Image_Slice_Reassembler:
                 if i < batch_img.shape[0]:
                     replacements[blk_idx] = (batch_img[i:i + 1], f"批次图片[{i + 1}]")
 
-        # B. 解析自由槽位图片
-        for i in range(1, 5):
-            slot_img = kwargs.get(f"槽位{i}_图片", None)
-            if slot_img is not None and isinstance(slot_img, torch.Tensor) and slot_img.shape[0] > 0:
-                slot_target_idx = int(kwargs.get(f"槽位{i}_目标块序号", i))
-                replacements[slot_target_idx] = (slot_img[0:1], f"槽位{i}")
-
-        # C. 解析直连块输入 (块1_图片 ~ 块12_图片，直连优先级最高)
-        for i in range(1, 13):
+        # B. 解析直连块输入 (块1_图片 ~ 块16_图片，改了哪块就直连哪块)
+        for i in range(1, 17):
             blk_img = kwargs.get(f"块{i}_图片", None)
             if blk_img is not None and isinstance(blk_img, torch.Tensor) and blk_img.shape[0] > 0:
-                replacements[i] = (blk_img[0:1], f"直连【块{i}_图片】")
+                replacements[i] = (blk_img[0:1], f"【块{i}_图片】")
 
         if not replacements:
             warn_msg = "提示: 未连接任何替换块图片（槽位或批次），直接输出基底原图。"
