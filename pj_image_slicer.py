@@ -56,8 +56,8 @@ class PJ_Image_Interactive_Slicer:
             }
         }
 
-    RETURN_TYPES = tuple(["IMAGE"] * MAX_OUTPUT_BLOCKS + ["IMAGE", "IMAGE", "STRING", "STRING"])
-    RETURN_NAMES = tuple([f"块{i}_图片" for i in range(1, MAX_OUTPUT_BLOCKS + 1)] + ["全部块_批次", "原图", "切片数据", "切片信息"])
+    RETURN_TYPES = ("IMAGE", "STRING", "IMAGE", "STRING") + tuple(["IMAGE"] * MAX_OUTPUT_BLOCKS)
+    RETURN_NAMES = ("原图", "切片数据", "全部块_批次", "切片信息") + tuple([f"块{i}_图片" for i in range(1, MAX_OUTPUT_BLOCKS + 1)])
     FUNCTION = "slice_image"
     CATEGORY = "PJ_Nodes/Image"
     OUTPUT_NODE = True
@@ -117,7 +117,7 @@ class PJ_Image_Interactive_Slicer:
         if image is None or not isinstance(image, torch.Tensor) or image.shape[0] == 0:
             blank = torch.zeros((1, 64, 64, 3), dtype=torch.float32)
             dummy_outputs = [blank] * MAX_OUTPUT_BLOCKS
-            return tuple(dummy_outputs + [blank, blank, "{}", "错误: 未提供有效图片，请先上传图片或连接上游图像"])
+            return tuple([blank, "{}", blank, "错误: 未提供有效图片，请先上传图片或连接上游图像"] + dummy_outputs)
 
         # 1. 保存当前图像的一张临时缩略图供前端交互画布绘制
         preview_info = []
@@ -253,18 +253,13 @@ class PJ_Image_Interactive_Slicer:
         slice_data_json = json.dumps(slice_meta, ensure_ascii=False)
         info_text = "\n".join(block_info_lines)
 
-        # 6. 构造返回元组: [块1..30] + 全部块_批次 + 原图 + 切片数据 + 切片信息
-        results = []
+        # 6. 构造返回元组: [原图, 切片数据, 全部块_批次, 切片信息] + [块1..30]
+        results = [image, slice_data_json, all_batch, info_text]
         for i in range(MAX_OUTPUT_BLOCKS):
             if i < len(sliced_blocks):
                 results.append(sliced_blocks[i])
             else:
                 results.append(sliced_blocks[0] if sliced_blocks else torch.zeros((1, 64, 64, 3)))
-
-        results.append(all_batch)
-        results.append(image)
-        results.append(slice_data_json)
-        results.append(info_text)
 
         return {
             "ui": {

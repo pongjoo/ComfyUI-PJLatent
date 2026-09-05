@@ -152,6 +152,7 @@ app.registerExtension({
                 const r = onConfigure ? onConfigure.apply(this, arguments) : undefined;
                 this.cleanInternalWidgets();
                 this.setupImageWidgetListener();
+                this.updateDynamicOutputs();
                 return r;
             };
 
@@ -260,14 +261,10 @@ app.registerExtension({
 
                 if (!this.outputs) this.outputs = [];
 
-                const desiredNames = [];
+                const desiredNames = ["原图", "切片数据", "全部块_批次", "切片信息"];
                 for (let i = 1; i <= totalBlocks; i++) {
                     desiredNames.push(`块${i}_图片`);
                 }
-                desiredNames.push("全部块_批次");
-                desiredNames.push("原图");
-                desiredNames.push("切片数据");
-                desiredNames.push("切片信息");
 
                 let needsUpdate = false;
                 if (this.outputs.length !== desiredNames.length) {
