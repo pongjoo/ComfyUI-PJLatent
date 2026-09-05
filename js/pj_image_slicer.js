@@ -165,6 +165,16 @@ app.registerExtension({
                 onRemoved?.apply(this, arguments);
             };
 
+            const onConnectionsChange = nodeType.prototype.onConnectionsChange;
+            nodeType.prototype.onConnectionsChange = function (type, index, isConnected, link_info) {
+                onConnectionsChange?.apply(this, arguments);
+                if (type === 2) { // 2 = LiteGraph.OUTPUT
+                    setTimeout(() => {
+                        this.notifyConnectedReassemblers();
+                    }, 30);
+                }
+            };
+
             // 清理并隐藏内部 widgets 与 ComfyUI 自动创建的图片 preview widget
             nodeType.prototype.cleanInternalWidgets = function () {
                 if (!this.widgets) return;
@@ -294,6 +304,30 @@ app.registerExtension({
                         }
                     }
                     this.setDirtyCanvas(true, true);
+                }
+
+                // 实时联动下游还原器
+                this.notifyConnectedReassemblers();
+            };
+
+            // 实时联动通知下游连接的切片原位还原器动态改变端口数
+            nodeType.prototype.notifyConnectedReassemblers = function () {
+                if (!this.outputs) return;
+                const sliceDataOut = this.outputs.find(out => out.name === "切片数据");
+                if (!sliceDataOut || !sliceDataOut.links) return;
+
+                const hCount = (this.cutlines?.horizontal || []).length;
+                const vCount = (this.cutlines?.vertical || []).length;
+                const totalBlocks = (hCount + 1) * (vCount + 1);
+
+                for (const linkId of sliceDataOut.links) {
+                    const link = app.graph?.links ? app.graph.links[linkId] : null;
+                    if (link) {
+                        const targetNode = app.graph.getNodeById(link.target_id);
+                        if (targetNode && typeof targetNode.syncDynamicInputs === "function") {
+                            targetNode.syncDynamicInputs(totalBlocks);
+                        }
+                    }
                 }
             };
 

@@ -82,8 +82,8 @@ class PJ_Image_Slice_Reassembler:
             }),
         }
 
-        # 直连端口：改了第几块就直接连第几块！例如修改了第5块，直接连【块5_图片】
-        for i in range(1, 17):
+        # 直连端口：支持最高 30 块，前端将随切片数据动态自适应展示实际块数
+        for i in range(1, 31):
             optional_dict[f"块{i}_图片"] = ("IMAGE", )
 
         return {
@@ -161,8 +161,8 @@ class PJ_Image_Slice_Reassembler:
                 if i < batch_img.shape[0]:
                     replacements[blk_idx] = (batch_img[i:i + 1], f"批次图片[{i + 1}]")
 
-        # B. 解析直连块输入 (块1_图片 ~ 块16_图片，改了哪块就直连哪块)
-        for i in range(1, 17):
+        # B. 解析直连块输入 (块1_图片 ~ 块30_图片，改了哪块就直连哪块)
+        for i in range(1, 31):
             blk_img = kwargs.get(f"块{i}_图片", None)
             if blk_img is not None and isinstance(blk_img, torch.Tensor) and blk_img.shape[0] > 0:
                 replacements[i] = (blk_img[0:1], f"【块{i}_图片】")
