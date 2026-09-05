@@ -80,19 +80,54 @@ app.registerExtension({
                 // 动态端口初始化
                 this.updateDynamicOutputs();
 
-                // 全局键盘监听：DEL/退格键删除、方向键精确微调、回车精准输入
-                if (!this._keyHandlerBound) {
-                    this._keyHandler = (e) => {
-                        const isNodeSelected = app.canvas?.selected_nodes && app.canvas.selected_nodes[this.id];
-                        if (!isNodeSelected || !this.selectedLine) return;
+                // 稳健挂载专属键盘监听：退格键 / D 键删除，避免与 ComfyUI 官方 Delete 冲突
+                this.bindKeyHandler = () => {
+                    if (this._keyHandlerBound) return;
 
-                        const { type, index } = this.selectedLine;
+                    this._keyHandler = (e) => {
+                        // 1. 若当前聚焦在文本输入控件上，直接放行
+                        const activeTag = document.activeElement ? document.activeElement.tagName.toUpperCase() : "";
+                        if (activeTag === "INPUT" || activeTag === "TEXTAREA") return;
+
+                        // 2. 官方 Delete (DEL) 键完全保留给 ComfyUI 官方删除节点功能，坚决不重合、不占用！
+                        if (e.key === "Delete") return;
+
+                        // 3. 判定删除分割线专属快捷键：【退格键 (Backspace)】 或 【字母 D 键 (d/D)】
+                        const isDeleteCutLineKey = (
+                            e.key === "Backspace" ||
+                            e.key === "d" ||
+                            e.key === "D" ||
+                            e.code === "KeyD"
+                        );
+
+                        const isEnterKey = (e.key === "Enter");
+                        const isArrowKey = (e.key === "ArrowUp" || e.key === "ArrowDown" || e.key === "ArrowLeft" || e.key === "ArrowRight");
+
+                        if (!isDeleteCutLineKey && !isEnterKey && !isArrowKey) return;
+
+                        // 4. 判定是否有选中的分割线目标
+                        const targetLine = this.selectedLine || (this.isFocused ? this.hoverLine : null);
+                        if (!targetLine) return;
+
+                        // 5. 判定节点是否处于活动状态（节点被选中 或 鼠标正在该节点上方）
+                        const isNodeSelected = Boolean(
+                            (app.canvas?.selected_nodes && (
+                                (app.canvas.selected_nodes instanceof Set && app.canvas.selected_nodes.has(this)) ||
+                                app.canvas.selected_nodes[this.id] ||
+                                app.canvas.selected_nodes[String(this.id)]
+                            )) ||
+                            app.canvas?.current_node === this ||
+                            this.isFocused
+                        );
+                        if (!isNodeSelected) return;
+
+                        const { type, index } = targetLine;
                         const isH = (type === "h");
                         const arr = isH ? this.cutlines.horizontal : this.cutlines.vertical;
-                        if (arr[index] === undefined) return;
+                        if (!arr || arr[index] === undefined) return;
 
-                        // 1. 删除切线 (DEL / 退格键)
-                        if (e.key === "Delete" || e.key === "Backspace") {
+                        // 1. 执行删除切线：按退格键 (Backspace) 或 字母 D 键
+                        if (isDeleteCutLineKey) {
                             arr.splice(index, 1);
                             this.selectedLine = null;
                             this.hoverLine = null;
@@ -101,16 +136,22 @@ app.registerExtension({
                             this.saveCutData();
                             this.updateDynamicOutputs();
                             this.setDirtyCanvas(true, true);
+
+                            // 彻底阻断事件向下传递，防止退格键触发页面后退或 ComfyUI 其他操作
                             e.preventDefault();
                             e.stopPropagation();
+                            if (e.stopImmediatePropagation) {
+                                e.stopImmediatePropagation();
+                            }
                             return;
                         }
 
                         // 2. 回车键直接弹出精确分值输入对话框
-                        if (e.key === "Enter") {
+                        if (isEnterKey) {
                             this.showPrecisionPopover(null, type, index);
                             e.preventDefault();
                             e.stopPropagation();
+                            if (e.stopImmediatePropagation) e.stopImmediatePropagation();
                             return;
                         }
 
@@ -138,12 +179,15 @@ app.registerExtension({
                             this.setDirtyCanvas(true);
                             e.preventDefault();
                             e.stopPropagation();
+                            if (e.stopImmediatePropagation) e.stopImmediatePropagation();
                         }
                     };
-                    window.addEventListener("keydown", this._keyHandler);
-                    this._keyHandlerBound = true;
-                }
 
+                    window.addEventListener("keydown", this._keyHandler, true);
+                    this._keyHandlerBound = true;
+                };
+
+                this.bindKeyHandler();
                 return r;
             };
 
@@ -153,14 +197,17 @@ app.registerExtension({
                 this.cleanInternalWidgets();
                 this.setupImageWidgetListener();
                 this.updateDynamicOutputs();
+                if (this.bindKeyHandler) this.bindKeyHandler();
                 return r;
             };
 
             const onRemoved = nodeType.prototype.onRemoved;
             nodeType.prototype.onRemoved = function () {
                 if (this._keyHandler) {
-                    window.removeEventListener("keydown", this._keyHandler);
+                    window.removeEventListener("keydown", this._keyHandler, true);
+                    window.removeEventListener("keydown", this._keyHandler, false);
                     this._keyHandler = null;
+                    this._keyHandlerBound = false;
                 }
                 onRemoved?.apply(this, arguments);
             };
@@ -503,6 +550,17 @@ app.registerExtension({
                             font-size: 12px;
                             white-space: nowrap;
                         ">确定</button>
+                        <button id="pj-pop-del" style="
+                            background: #d32f2f;
+                            border: none;
+                            color: #fff;
+                            padding: 6px 12px;
+                            border-radius: 4px;
+                            cursor: pointer;
+                            font-weight: bold;
+                            font-size: 12px;
+                            white-space: nowrap;
+                        " title="删除当前分割线 (也可选中后按退格键或D键)">🗑️ 删除</button>
                     </div>
                     <div style="color: #777; font-size: 10px; margin-bottom: 6px;">快捷等分比例：</div>
                     <div style="display: flex; gap: 4px; justify-content: space-between;">
@@ -575,6 +633,21 @@ app.registerExtension({
                 submitBtn.addEventListener("click", () => applyValue(inputElem.value));
                 closeBtn.addEventListener("click", closePopover);
 
+                const delBtn = popover.querySelector("#pj-pop-del");
+                if (delBtn) {
+                    delBtn.addEventListener("click", () => {
+                        arr.splice(index, 1);
+                        this.selectedLine = null;
+                        this.hoverLine = null;
+                        this.hoverTag = null;
+                        this.activeMode = "idle";
+                        this.saveCutData();
+                        this.updateDynamicOutputs();
+                        this.setDirtyCanvas(true, true);
+                        closePopover();
+                    });
+                }
+
                 popover.querySelectorAll(".pj-quick-ratio").forEach(btn => {
                     btn.addEventListener("click", () => {
                         const r = parseFloat(btn.getAttribute("data-ratio"));
@@ -614,6 +687,7 @@ app.registerExtension({
             };
 
             nodeType.prototype.onMouseMove = function (e, pos) {
+                if (this.bindKeyHandler) this.bindKeyHandler();
                 const rect = this.getCanvasRect();
                 this.mousePos = [pos[0], pos[1]];
 
@@ -708,6 +782,10 @@ app.registerExtension({
             };
 
             nodeType.prototype.onMouseDown = function (e, pos) {
+                if (this.bindKeyHandler) this.bindKeyHandler();
+                if (app.canvas && app.canvas.selectNode && (!app.canvas.selected_nodes || !app.canvas.selected_nodes[this.id])) {
+                    app.canvas.selectNode(this);
+                }
                 const rect = this.getCanvasRect();
 
                 // 1. 最高优先级：工具栏按钮点击判定 (横线、竖线、清空)
@@ -1101,13 +1179,13 @@ app.registerExtension({
                 ctx.textBaseline = "middle";
                 ctx.fillText(`📊 分割: ${totalBlocks} 块 (${totalRows}行 x ${totalCols}列)`, 20, barY + barH / 2);
 
-                let rightTip = "提示: 点击标签输入分值 / 方向键微调 / DEL删除";
+                let rightTip = "提示: 点击标签改分值 / 退格或D键删除";
                 let rightColor = "#888";
                 if (this.activeMode === "moving_line") {
-                    rightTip = "[移动中] 单击锁定 / 按住Shift对齐刻度";
+                    rightTip = "[移动中] 单击锁定 / 退格或D键删除";
                     rightColor = "#FFD700";
                 } else if (this.selectedLine) {
-                    rightTip = "[已选中] 方向键微调(0.1%) / 回车或点标签改值 / DEL删除";
+                    rightTip = "[已选中] 方向键微调 / 退格或D键删除 / 回车改值";
                     rightColor = "#00E5FF";
                 } else if (this.activeMode === "add_h" || this.activeMode === "add_v") {
                     rightTip = "[点击落刀] 移动鼠标落刀 / 按住Shift吸附";
