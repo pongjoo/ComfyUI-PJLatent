@@ -41,6 +41,14 @@ class PJ_Image_Interactive_Slicer:
                     "step": 8,
                     "tooltip": "切块边缘是否保留重叠像素（用于拼接过渡）"
                 }),
+                "尺寸对齐倍数": ([
+                    "自动对齐到 8 倍数 (推荐·生图/VAE无损标准)",
+                    "自动对齐到 16 倍数 (视频/深度学习标准)",
+                    "不对齐 (原始任意像素)"
+                ], {
+                    "default": "自动对齐到 8 倍数 (推荐·生图/VAE无损标准)",
+                    "tooltip": "是否将切块尺寸吸附对齐为8或16的整数倍。杜绝VAE Encode强制裁切丢像素或报错"
+                }),
                 "切线数据": ("STRING", {
                     "default": "{\"horizontal\": [], \"vertical\": []}",
                     "multiline": False
@@ -102,6 +110,8 @@ class PJ_Image_Interactive_Slicer:
         upstream_img = kwargs.get("图像", kwargs.get("image", None))
         image_name = kwargs.get("上传图片", kwargs.get("image_upload", ""))
         overlap = int(kwargs.get("重叠缝隙像素", kwargs.get("overlap", 0)))
+        align_mode = str(kwargs.get("尺寸对齐倍数", "自动对齐到 8 倍数 (推荐·生图/VAE无损标准)"))
+        align_step = 8 if "8" in align_mode else (16 if "16" in align_mode else 1)
         cut_data_raw = kwargs.get("切线数据", kwargs.get("cut_data", "{}"))
         unique_id = str(kwargs.get("unique_id", "default_slicer"))
 
@@ -197,6 +207,30 @@ class PJ_Image_Interactive_Slicer:
                 y_end = min(orig_h, y_splits[r + 1] + overlap)
                 x_start = max(0, x_splits[c] - overlap)
                 x_end = min(orig_w, x_splits[c + 1] + overlap)
+
+                # 智能吸附对齐 8 或 16 的整数倍（消除 VAE 编码强制裁切与变形）
+                if align_step > 1:
+                    bw = x_end - x_start
+                    bh = y_end - y_start
+                    rem_w = bw % align_step
+                    if rem_w != 0:
+                        diff_w = align_step - rem_w
+                        if x_end + diff_w <= orig_w:
+                            x_end += diff_w
+                        elif x_start - diff_w >= 0:
+                            x_start -= diff_w
+                        elif bw - rem_w >= align_step:
+                            x_end -= rem_w
+
+                    rem_h = bh % align_step
+                    if rem_h != 0:
+                        diff_h = align_step - rem_h
+                        if y_end + diff_h <= orig_h:
+                            y_end += diff_h
+                        elif y_start - diff_h >= 0:
+                            y_start -= diff_h
+                        elif bh - rem_h >= align_step:
+                            y_end -= rem_h
 
                 block_tensor = image[:, y_start:y_end, x_start:x_end, :].clone()
                 sliced_blocks.append(block_tensor)
